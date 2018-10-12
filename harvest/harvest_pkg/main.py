@@ -8,15 +8,35 @@ import datetime
 import gzip
 import os
 
-es = Elasticsearch([{'host': 'IP_ELASTIC', 'port': '9200'}])
+es = Elasticsearch([{'host': 'IP_ELASTICSEARCH', 'port': '9200'}])
 SYNOP_REPO='/home/helbert/Documents/projects/SYNOP_REPO'
 
 def process_request(period):
+
     if period=='all':
+        """ If this option is called, the app will retrieve the monthly files for synop starting on January 1996, until current month"""
         get_all()
+    elif period=='current_month':
+        """This option will calculate the current month, cal request this file only """
+        get_current_month()
     else:
+        """ This option assumes the parameter period, refers to a specific month , then it will use this parameter to identify the file and request it."""
         ls_group_observations=get_one_specific_period(period)
         save_docs_to_es(ls_group_observations,'mf_synop')
+
+def get_current_month():
+    """This option will calculate the current month, cal request this file only """
+    now=datetime.datetime.now()
+    current_year=now.year
+    current_month=now.month
+    st_month=''
+    if current_month<10:
+        st_month='0'+str(current_month)
+    else:
+        st_month=str(current_month)
+    period=str(current_year) + st_month
+    ls_group_observations = get_one_specific_period(period)
+    save_docs_to_es(ls_group_observations, 'mf_synop')
 
 
 def list_indexes():
@@ -31,6 +51,10 @@ def list_indexes():
     return ls_indices
 
 def save_docs_to_es(ls_docs, index):
+    """ This method, will save the list of docs ls_docs into the collection of documents identified by the parameter index
+        the documents are python dictionaries, the dictionaries need to have a key 'id', i am indexing using this key
+
+    """
     ls_indexes=list_indexes()
     if index in ls_indexes:
         print('the index already exist')
@@ -52,6 +76,8 @@ def save_docs_to_es(ls_docs, index):
 
 
 def get_one_specific_period(period):
+    """ This option assumes the parameter period, refers to a specific month, formatted YYYYYMM , then it will use this parameter to identify the file and request it."""
+
     url='https://donneespubliques.meteofrance.fr/donnees_libres/Txt/Synop/Archive/synop.'+period+'.csv.gz'
     r=requests.get(url)
     file_name=os.path.join(SYNOP_REPO, ('synop_'+ period+'.txt'))
@@ -100,6 +126,17 @@ def get_one_specific_period(period):
             obs_minute = obs_date[10:12]
 
 
+            """ 
+                Each line of the retrieved text files corresponds to a group of observations 
+                (different variables, observed at the same time)
+                In the original dataset the time is formatted as 20081001000000
+                I am parsing this string, and calculating the timestamp
+                I am also adding a field with the time formatted as ''date_iso'
+                I am also adding a key 'id' that is the concatenation of the numer_sta and the date
+                'id' is unique for each group of observations
+                I am adding to the original data, the timestamp
+            """
+
             format = '%Y%m%d%H%M%S'
             datestring = obs_year+obs_month+obs_day+obs_hour+obs_minute+'00'
             d = datetime.datetime.strptime(datestring, format)
@@ -112,18 +149,10 @@ def get_one_specific_period(period):
     return ls_group_observations
 
 
-
-
-
-    # with open(c) as f:
-    #     content=f.readlines()
-    # ls_lines=content.split('\n')
-    #
-    # print(len(ls_lines))
-
 def get_all():
+    """ If this option is called, the app will retrieve the monthly files for synop starting on January 1996, until current month"""
     now=datetime.datetime.now()
-    init_year=2017
+    init_year=1996
     end_year=now.year
     end_month=now.month
     print ('get_all')
@@ -154,9 +183,10 @@ def get_all():
                 save_docs_to_es(ls_group_observations, 'mf_synop')
 
 if __name__ == '__main__':
-    print (sys.argv)
+    """ To run the scrip 
+    python main [all, current_month, (period, for instance 200810)]
+    """
     period=sys.argv[1]
     print('selected period: ',period)
     process_request(period)
-
     print('work done')
